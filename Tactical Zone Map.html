@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>1986 Zone Military Topographical Map</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+        .font-mono-tech { font-family: 'Share Tech Mono', monospace; }
+        
+        /* Dark Tactical Base Filter */
+        .leaflet-tile-container img {
+            filter: brightness(0.65) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+        }
+
+        /* CRT Scanline Overlay */
+        .crt::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 999;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+        }
+
+        .leaflet-container {
+            background-color: #0b0f19 !important;
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 h-screen w-screen overflow-hidden flex flex-col font-mono-tech select-none">
+
+    <!-- TOP HUD HEADER -->
+    <header class="bg-gray-950 border-b border-red-900/50 px-4 py-2 flex items-center justify-between z-[2001] shadow-lg shrink-0">
+        <div class="flex items-center space-x-3">
+            <button id="sidebar-toggle" class="bg-red-950/85 hover:bg-red-900 border border-red-600/60 text-red-400 px-3 py-1.5 rounded text-xs flex items-center space-x-2 transition shadow-[0_0_10px_rgba(239,68,68,0.2)]">
+                <i class="fa-solid fa-bars-staggered"></i>
+                <span class="font-bold tracking-wider">MENU // TACTICAL LAYERS</span>
+            </button>
+            <div class="flex items-center space-x-2">
+                <div class="w-3 h-3 bg-red-600 rounded-full animate-pulse shadow-[0_0_8px_red]"></div>
+                <h1 class="text-base md:text-lg font-bold tracking-widest text-red-500 uppercase drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]">
+                    ZRU // 1986 Topographical Map
+                </h1>
+            </div>
+            <span class="hidden sm:inline-block text-[10px] bg-red-950/60 border border-red-800/50 text-red-300 px-2 py-0.5 rounded">
+                SECURE // MGRS-1986
+            </span>
+        </div>
+
+        <div class="hidden lg:flex items-center space-x-6 text-xs text-gray-400 bg-gray-900/80 px-4 py-1 rounded border border-gray-800">
+            <div>TERRAIN: <span id="hud-elevation" class="text-amber-400 font-bold">142m ASL</span></div>
+            <div>STATUS: <span class="text-red-400 font-bold">ACTIVE PERIMETER</span></div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+            <button id="btn-waypoint-mode" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs flex items-center space-x-1.5 transition">
+                <i class="fa-solid fa-map-pin text-amber-500"></i>
+                <span class="hidden sm:inline">+ WAYPOINT</span>
+            </button>
+            <button id="btn-ruler" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs flex items-center space-x-1.5 transition">
+                <i class="fa-solid fa-ruler text-blue-400"></i>
+                <span class="hidden sm:inline">RULER A-B</span>
+            </button>
+            <button id="btn-route-ruler" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs flex items-center space-x-1.5 transition">
+                <i class="fa-solid fa-route text-emerald-400"></i>
+                <span class="hidden sm:inline">ROUTE RULER</span>
+            </button>
+            <button id="btn-crt" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-400 px-2.5 py-1.5 rounded text-xs transition" title="Toggle CRT Filter">
+                <i class="fa-solid fa-tv"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN APP CONTAINER -->
+    <div class="flex-1 relative flex overflow-hidden">
+
+        <!-- SIDEBAR -->
+        <aside id="sidebar" class="absolute z-[2000] inset-y-0 left-0 w-80 bg-gray-950 border-r border-gray-800 flex flex-col transform -translate-x-full transition-transform duration-300 ease-in-out shadow-2xl">
+            <div class="p-3 border-b border-gray-800 flex items-center justify-between bg-gray-900/50">
+                <span class="text-xs font-bold tracking-wider text-gray-300 uppercase flex items-center space-x-2">
+                    <i class="fa-solid fa-sliders text-red-500"></i>
+                    <span>Tactical Overlays & Intel</span>
+                </span>
+                <button id="sidebar-close" class="text-gray-400 hover:text-white p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-4 space-y-5 text-sm">
+                
+                <div class="space-y-2">
+                    <label class="text-xs text-gray-400 uppercase tracking-widest block font-bold">Base Map Style</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="setBaseLayer('topo')" id="basemap-topo" class="bg-red-950/60 border border-red-600/70 text-red-300 py-1.5 px-2 rounded text-xs text-center transition hover:bg-red-900/60">
+                            OpenTopoMap
+                        </button>
+                        <button onclick="setBaseLayer('osm')" id="basemap-osm" class="bg-gray-900 border border-gray-700 text-gray-300 py-1.5 px-2 rounded text-xs text-center transition hover:bg-gray-800">
+                            OpenStreetMap
+                        </button>
+                    </div>
+                </div>
+
+                <div class="space-y-2 pt-2 border-t border-gray-800">
+                    <label class="text-xs text-gray-400 uppercase tracking-widest block font-bold">Zone Hazard Layers</label>
+                    
+                    <label class="flex items-center space-x-3 cursor-pointer p-1.5 rounded hover:bg-gray-900 transition">
+                        <input type="checkbox" id="layer-perimeter" checked onchange="toggleLayer('perimeter')" class="rounded bg-gray-900 border-gray-700 text-red-600 focus:ring-0">
+                        <span class="text-xs text-gray-300">UN-ZET Exclusion Perimeter</span>
+                    </label>
+
+                    <label class="flex items-center space-x-3 cursor-pointer p-1.5 rounded hover:bg-gray-900 transition">
+                        <input type="checkbox" id="layer-redcore" checked onchange="toggleLayer('redcore')" class="rounded bg-gray-900 border-gray-700 text-red-600 focus:ring-0">
+                        <span class="text-xs text-gray-300">Level A CBRN Red Core</span>
+                    </label>
+
+                    <label class="flex items-center space-x-3 cursor-pointer p-1.5 rounded hover:bg-gray-900 transition">
+                        <input type="checkbox" id="layer-powerplants" checked onchange="toggleLayer('powerplants')" class="rounded bg-gray-900 border-gray-700 text-red-600 focus:ring-0">
+                        <span class="text-xs text-gray-300">Nuclear Power Plants (Unique Markers)</span>
+                    </label>
+
+                    <label class="flex items-center space-x-3 cursor-pointer p-1.5 rounded hover:bg-gray-900 transition">
+                        <input type="checkbox" id="layer-airbases" checked onchange="toggleLayer('airbases')" class="rounded bg-gray-900 border-gray-700 text-red-600 focus:ring-0">
+                        <span class="text-xs text-gray-300">Strategic Air Bases & Hangar 09</span>
+                    </label>
+
+                    <label class="flex items-center space-x-3 cursor-pointer p-1.5 rounded hover:bg-gray-900 transition">
+                        <input type="checkbox" id="layer-rail" checked onchange="toggleLayer('rail')" class="rounded bg-gray-900 border-gray-700 text-red-600 focus:ring-0">
+                        <span class="text-xs text-gray-300">ZRU Supply Rail Network</span>
+                    </label>
+
+                    <label class="flex items-center space-x-3 cursor-pointer p-1.5 rounded hover:bg-gray-900 transition">
+                        <input type="checkbox" id="layer-checkpoints" checked onchange="toggleLayer('checkpoints')" class="rounded bg-gray-900 border-gray-700 text-red-600 focus:ring-0">
+                        <span class="text-xs text-gray-300">UN Security Checkpoints</span>
+                    </label>
+                </div>
+
+                <div class="space-y-2 pt-2 border-t border-gray-800">
+                    <div class="flex items-center justify-between">
+                        <label class="text-xs text-gray-400 uppercase tracking-widest font-bold">Active Waypoints & Quests</label>
+                        <button onclick="clearAllWaypoints()" class="text-[10px] text-red-400 hover:text-red-300 underline">Clear All</button>
+                    </div>
+                    <div id="waypoint-list" class="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                        <div class="text-xs text-gray-500 italic p-2 bg-gray-900 rounded border border-gray-800/60">
+                            Click "+ WAYPOINT" in top bar, then click map to add markers (Player, Anomaly, Quest).
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-2 pt-2 border-t border-gray-800 text-xs text-gray-400">
+                    <label class="text-xs text-gray-400 uppercase tracking-widest block font-bold">Tactical Legend</label>
+                    <div class="grid grid-cols-2 gap-2 text-[11px]">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-3 h-3 bg-red-600 rounded-sm inline-block border border-white"></span>
+                            <span>Melted NPP</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="w-3 h-3 bg-emerald-500 rounded-sm inline-block border border-white"></span>
+                            <span>Safe NPP</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="w-3 h-3 bg-amber-500 rounded-full inline-block"></span>
+                            <span>Air Base</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="w-3 h-3 bg-blue-500 rounded-full inline-block"></span>
+                            <span>ZRU Rail</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </aside>
+
+        <!-- MAP CONTAINER -->
+        <main class="flex-1 relative bg-gray-900">
+            <div id="map" class="w-full h-full z-10"></div>
+
+            <!-- INTEL CARD POPUP -->
+            <div id="intel-card" class="hidden absolute bottom-4 left-3 right-3 md:left-auto md:right-4 md:w-96 bg-gray-950/95 border border-red-900/80 rounded-lg shadow-2xl z-[2000] p-4 backdrop-blur-md">
+                <div class="flex items-start justify-between pb-2 border-b border-gray-800">
+                    <div>
+                        <span id="intel-category" class="text-[10px] bg-red-950 text-red-400 px-2 py-0.5 rounded border border-red-800 uppercase font-bold">Category</span>
+                        <h3 id="intel-title" class="text-base font-bold text-gray-100 mt-1">Location Title</h3>
+                    </div>
+                    <button onclick="closeIntelCard()" class="text-gray-400 hover:text-white p-1">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+                <div class="py-3 space-y-2 text-xs">
+                    <p id="intel-description" class="text-gray-300 leading-relaxed">Description goes here...</p>
+                    <div class="grid grid-cols-2 gap-2 pt-2 border-t border-gray-900 text-gray-400">
+                        <div>Elevation: <span id="intel-elev" class="text-amber-400 font-bold">--</span></div>
+                        <div>Radiation: <span id="intel-rad" class="text-red-400 font-bold">--</span></div>
+                    </div>
+                </div>
+                <div class="pt-2 border-t border-gray-800 flex justify-end">
+                    <button onclick="closeIntelCard()" class="bg-red-950 hover:bg-red-900 text-red-300 border border-red-700/60 px-3 py-1 rounded text-xs transition">
+                        Dismiss Card
+                    </button>
+                </div>
+            </div>
+
+            <!-- DIRECT RULER HUD BAR -->
+            <div id="ruler-hud" class="hidden absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-950/95 border border-blue-900/80 rounded-lg shadow-2xl z-[2000] px-4 py-2.5 flex items-center space-x-6 backdrop-blur-md text-xs">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-ruler text-blue-400"></i>
+                    <span class="font-bold text-blue-300 uppercase">Tactical Ruler A-B</span>
+                </div>
+                <div>DIST: <span id="ruler-dist" class="text-white font-bold">0.00 km</span></div>
+                <div>BEARING: <span id="ruler-bearing" class="text-amber-400 font-bold">0°</span></div>
+                <div>TIME (Walk): <span id="ruler-time" class="text-purple-400 font-bold">0 min</span></div>
+                <button onclick="clearRuler()" class="text-red-400 hover:text-red-300 px-2 py-0.5 bg-red-950/50 rounded border border-red-900">
+                    <i class="fa-solid fa-trash"></i> Clear
+                </button>
+            </div>
+
+            <!-- ROUTE RULER HUD BAR -->
+            <div id="route-ruler-hud" class="hidden absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-950/95 border border-emerald-900/80 rounded-lg shadow-2xl z-[2000] px-4 py-2.5 flex items-center space-x-4 backdrop-blur-md text-xs">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-route text-emerald-400"></i>
+                    <span class="font-bold text-emerald-300 uppercase">Route Ruler</span>
+                </div>
+                <div>DIST: <span id="route-dist" class="text-white font-bold">0.00 km</span></div>
+                <div class="flex items-center space-x-1">
+                    <span>MODE:</span>
+                    <select id="route-speed-select" onchange="updateRouteCalculations()" class="bg-gray-900 border border-gray-700 text-emerald-300 rounded px-2 py-0.5 text-xs focus:outline-none">
+                        <option value="4.5">Foot March (4.5 km/h)</option>
+                        <option value="25">GAZ-2330 Tigr (Off-Road: 25 km/h)</option>
+                        <option value="60">GAZ-2330 Tigr (Paved Road: 60 km/h)</option>
+                        <option value="40">ZRU Armored Railcar (40 km/h)</option>
+                    </select>
+                </div>
+                <div>TIME: <span id="route-time" class="text-amber-400 font-bold">0 min</span></div>
+                <button onclick="clearRouteRuler()" class="text-red-400 hover:text-red-300 px-2 py-0.5 bg-red-950/50 rounded border border-red-900">
+                    <i class="fa-solid fa-trash"></i> Clear
+                </button>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- WAYPOINT MODAL PROMPT -->
+    <div id="waypoint-modal" class="hidden fixed inset-0 bg-black/70 z-[3000] flex items-center justify-center p-4">
+        <div class="bg-gray-950 border border-amber-600/60 rounded-lg p-5 w-full max-w-sm shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-2">
+                <h3 class="text-sm font-bold text-amber-400 uppercase flex items-center space-x-2">
+                    <i class="fa-solid fa-map-pin"></i>
+                    <span>Add Tactical Waypoint / Marker</span>
+                </h3>
+                <button onclick="closeWaypointModal()" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-gray-400 block mb-1">Waypoint Label / Name</label>
+                    <input type="text" id="wp-name" placeholder="e.g., ZRU Forward Camp Alpha" class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-amber-500">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 block mb-1">Category / Type</label>
+                    <select id="wp-type" class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-amber-500">
+                        <option value="player">Player Location Marker</option>
+                        <option value="anomaly">Anomaly Field</option>
+                        <option value="quest">Quest / Objective</option>
+                        <option value="cache">Supply Cache</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 block mb-1">Tactical Notes</label>
+                    <textarea id="wp-notes" placeholder="Optional intel notes..." rows="2" class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-amber-500"></textarea>
+                </div>
+            </div>
+            <div class="flex justify-end space-x-2 pt-2 border-t border-gray-900">
+                <button onclick="closeWaypointModal()" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs">Cancel</button>
+                <button onclick="saveWaypoint()" class="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-gray-950 font-bold rounded text-xs">Drop Marker</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT APP LOGIC -->
+    <script>
+        const map = L.map('map', {
+            center: [50.0, 31.5],
+            zoom: 6,
+            zoomControl: false
+        });
+
+        L.control.zoom({ position: 'topright' }).addTo(map);
+
+        const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+            maxZoom: 17,
+            attribution: 'Map data: &copy; OpenTopoMap, OSM contributors'
+        });
+
+        const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+        });
+
+        topoLayer.addTo(map);
+
+        function setBaseLayer(type) {
+            if (type === 'topo') {
+                map.removeLayer(osmLayer);
+                topoLayer.addTo(map);
+                document.getElementById('basemap-topo').className = "bg-red-950/60 border border-red-600/70 text-red-300 py-1.5 px-2 rounded text-xs text-center transition";
+                document.getElementById('basemap-osm').className = "bg-gray-900 border border-gray-700 text-gray-300 py-1.5 px-2 rounded text-xs text-center transition hover:bg-gray-800";
+            } else {
+                map.removeLayer(topoLayer);
+                osmLayer.addTo(map);
+                document.getElementById('basemap-osm').className = "bg-red-950/60 border border-red-600/70 text-red-300 py-1.5 px-2 rounded text-xs text-center transition";
+                document.getElementById('basemap-topo').className = "bg-gray-900 border border-gray-700 text-gray-300 py-1.5 px-2 rounded text-xs text-center transition hover:bg-gray-800";
+            }
+        }
+
+        const perimeterGroup = L.layerGroup().addTo(map);
+        const redCoreGroup = L.layerGroup().addTo(map);
+        const powerPlantsGroup = L.layerGroup().addTo(map);
+        const airbasesGroup = L.layerGroup().addTo(map);
+        const railGroup = L.layerGroup().addTo(map);
+        const checkpointsGroup = L.layerGroup().addTo(map);
+        const customWaypointsGroup = L.layerGroup().addTo(map);
+
+        // Original Expanded Maritime & Continental Zone Perimeter
+        const zonePerimeterCoords = [
+            [55.2, 33.8], // Solomek / Smolensk Sector
+            [54.5, 36.2], // Kursk Buffer East
+            [52.0, 39.0], // Voronezh / Kursk East Boundary
+            [48.5, 38.5], // Donbas Edge
+            [45.0, 37.0], // Deep Sea of Azov / Kerch Strait Sector
+            [43.8, 33.5], // Deep Black Sea Maritime Exclusion Line
+            [44.5, 29.5], // Western Black Sea Maritime Border
+            [46.5, 29.8], // Odesa Maritime Outer Approach
+            [48.0, 28.2], // Dniester / Moldova Border
+            [51.2, 23.5], // Volyn / Poland Border
+            [53.8, 24.2], // West Belarus
+            [55.2, 28.0], // North Belarus
+            [55.2, 33.8]  // Closing at Solomek
+        ];
+
+        const perimeterPolygon = L.polygon(zonePerimeterCoords, {
+            color: '#ef4444',
+            weight: 3,
+            dashArray: '8, 8',
+            fillColor: '#ef4444',
+            fillOpacity: 0.08
+        }).addTo(perimeterGroup);
+
+        // Radiation Core Overlays
+        L.circle([51.389, 30.099], { radius: 45000, color: '#dc2626', weight: 2, fillColor: '#991b1b', fillOpacity: 0.35 }).addTo(redCoreGroup);
+        L.circle([51.267, 25.883], { radius: 30000, color: '#dc2626', weight: 2, fillColor: '#991b1b', fillOpacity: 0.3 }).addTo(redCoreGroup);
+        L.circle([51.681, 35.578], { radius: 30000, color: '#dc2626', weight: 2, fillColor: '#991b1b', fillOpacity: 0.3 }).addTo(redCoreGroup);
+        L.circle([47.512, 34.583], { radius: 35000, color: '#dc2626', weight: 2, fillColor: '#991b1b', fillOpacity: 0.3 }).addTo(redCoreGroup);
+
+        // All Nuclear Power Plants with Unique Custom Power Plant Markers (Factory/Atom Symbol icon representation)
+        const powerPlantsData = [
+            {
+                name: "Chernobyl Nuclear Power Plant (Epicenter / Lab X-1)",
+                lat: 51.389, lng: 30.099,
+                category: "Melted NPP (4 Cores)",
+                elevation: "135m ASL",
+                radiation: "50 - 250 mSv/h (Surface) / 15 Sv/h (Lab X-1)",
+                desc: "All 4 reactors suffered total core meltdowns on April 26, 1986. Subterranean Lab X-1 houses the primary Noospheric scalar array."
+            },
+            {
+                name: "Rivne Nuclear Power Plant (Lab X-4)",
+                lat: 51.267, lng: 25.883,
+                category: "Melted NPP (2 Cores)",
+                elevation: "180m ASL",
+                radiation: "10 - 45 mSv/h",
+                desc: "Both active reactors suffered total meltdown during the secondary scalar surge. Lab X-4 contains volatile spatial distortion nodes."
+            },
+            {
+                name: "Zaporizhzhia Nuclear Power Plant (Lab X-7)",
+                lat: 47.512, lng: 34.583,
+                category: "Melted NPP (2 Cores)",
+                elevation: "52m ASL",
+                radiation: "10 - 30 mSv/h",
+                desc: "Electrical backfeed caused dual core meltdowns. Subterranean Lab X-7 was built for deep electromagnetic pulse experiments."
+            },
+            {
+                name: "Kursk Nuclear Power Plant (Lab X-2)",
+                lat: 51.681, lng: 35.578,
+                category: "Melted NPP (1 Core)",
+                elevation: "165m ASL",
+                radiation: "5 - 15 mSv/h",
+                desc: "Unit 1 breached during the 1986 shockwave. Serves as the initial staging point for ZRU Detachment 1 infiltration."
+            },
+            {
+                name: "Smolensk Nuclear Power Plant (Solomek / Lab X-5)",
+                lat: 55.150, lng: 33.250,
+                category: "Melted NPP (1 Core)",
+                elevation: "210m ASL",
+                radiation: "2 - 10 mSv/h",
+                desc: "Northern sector power facility fully enclosed within the Solomek Zone boundary. Contains Lab X-5 archives."
+            },
+            {
+                name: "South Ukrainian Nuclear Power Plant",
+                lat: 47.823, lng: 30.975,
+                category: "Partial Meltdown (1 Core)",
+                elevation: "75m ASL",
+                radiation: "1 - 5 mSv/h",
+                desc: "Lost 1 of 3 reactor cores to meltdown; southern water-table contamination corridor."
+            },
+            {
+                name: "Khmelnytskyi Nuclear Power Plant",
+                lat: 50.187, lng: 26.653,
+                category: "Operational / Safe Zone",
+                elevation: "245m ASL",
+                radiation: "0.20 µSv/h (Normal)",
+                desc: "Zero core meltdowns. Serves as a green-zone UN-ZET administrative waypoint."
+            }
+        ];
+
+        powerPlantsData.forEach(pp => {
+            const isMelted = !pp.category.includes('Safe');
+            const markerColor = isMelted ? '#dc2626' : '#10b981';
+            const iconHtml = `
+                <div style="background-color: ${markerColor}; width: 26px; height: 26px; border-radius: 4px; border: 2px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px ${markerColor};">
+                    <i class="fa-solid fa-radiation text-white text-xs"></i>
+                </div>
+            `;
+            const marker = L.marker([pp.lat, pp.lng], {
+                icon: L.divIcon({
+                    className: 'custom-npp-icon',
+                    html: iconHtml,
+                    iconSize: [26, 26],
+                    iconAnchor: [13, 13]
+                })
+            });
+
+            marker.on('click', (e) => {
+                L.DomEvent.stopPropagation(e);
+                showIntelCard(pp.name, pp.category, pp.desc, pp.elevation, pp.radiation);
+            });
+            powerPlantsGroup.addLayer(marker);
+        });
+
+        // Strategic Air Bases (Including Bila Tserkva / Hangar 09 with captured F-14 "Red 14")
+        const airbasesData = [
+            {
+                name: "Bila Tserkva Air Base (Hangar 09 / 'Red 14')",
+                lat: 49.790, lng: 30.120,
+                category: "Strategic Air Base",
+                elevation: "172m ASL",
+                radiation: "2.5 mSv/h",
+                desc: "Houses Hangar 09 containing the captured F-14A Tomcat ('Red 14') and experimental MiG-31 aircraft."
+            },
+            {
+                name: "Chernihiv Air Base",
+                lat: 51.433, lng: 31.216,
+                category: "Air Base",
+                elevation: "140m ASL",
+                radiation: "1.2 mSv/h",
+                desc: "Northern interceptor airfield with reinforced concrete hangars."
+            },
+            {
+                name: "Nizhyn Air Base",
+                lat: 51.066, lng: 31.883,
+                category: "Air Base",
+                elevation: "130m ASL",
+                radiation: "0.8 mSv/h",
+                desc: "Transport and helicopter staging hub."
+            },
+            {
+                name: "Bobruisk Air Base (Belarus)",
+                lat: 53.283, lng: 29.216,
+                category: "Strategic Air Base",
+                elevation: "145m ASL",
+                radiation: "1.5 mSv/h",
+                desc: "Long-range aviation bomber base north of the Zone perimeter."
+            },
+            {
+                name: "Ziabrauka Air Base",
+                lat: 52.250, lng: 31.066,
+                category: "Air Base",
+                elevation: "150m ASL",
+                radiation: "2.0 mSv/h",
+                desc: "Belarusian radar and tactical fighter outpost."
+            }
+        ];
+
+        airbasesData.forEach(base => {
+            const marker = L.circleMarker([base.lat, base.lng], {
+                radius: 6,
+                color: '#f59e0b',
+                weight: 1.5,
+                fillColor: '#d97706',
+                fillOpacity: 0.9
+            });
+            marker.on('click', (e) => {
+                L.DomEvent.stopPropagation(e);
+                showIntelCard(base.name, base.category, base.desc, base.elevation, base.radiation);
+            });
+            airbasesGroup.addLayer(marker);
+        });
+
+        // Rail Line
+        const railCoords = [
+            [51.681, 35.578],
+            [52.438, 30.982],
+            [51.450, 31.300],
+            [51.389, 30.099],
+            [50.450, 30.523],
+            [51.267, 25.883]
+        ];
+
+        L.polyline(railCoords, { color: '#3b82f6', weight: 3, dashArray: '5, 5', opacity: 0.8 }).addTo(railGroup);
+
+        // UN Security Checkpoints
+        const checkpointsData = [
+            { name: "North Gomel Checkpoint", lat: 52.438, lng: 30.982, desc: "Primary northern UN-ZET border inspection post on the rail corridor." },
+            { name: "West Volyn / Poland Border Checkpoint", lat: 51.100, lng: 23.800, desc: "Western visa checkpoint monitoring corporate and scientific traffic." },
+            { name: "South Odesa Maritime Checkpoint", lat: 46.482, lng: 30.723, desc: "Coastal and naval quarantine station." },
+            { name: "Southwest Dniester Checkpoint", lat: 46.850, lng: 29.600, desc: "Riverine security gate monitoring Dniester basin movement." },
+            { name: "East Kursk Buffer Checkpoint", lat: 51.700, lng: 36.190, desc: "Eastern military containment outpost near Kursk." },
+            { name: "Solomek / Smolensk Sector Checkpoint", lat: 55.150, lng: 33.250, desc: "Northern perimeter gate enclosing the Solomek research sector." }
+        ];
+
+        checkpointsData.forEach(cp => {
+            const marker = L.marker([cp.lat, cp.lng], {
+                icon: L.divIcon({
+                    className: 'custom-div-icon',
+                    html: `<div style="background-color: #ef4444; width: 10px; height: 10px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 6px red;"></div>`,
+                    iconSize: [12, 12],
+                    iconAnchor: [6, 6]
+                })
+            });
+            marker.on('click', (e) => {
+                L.DomEvent.stopPropagation(e);
+                showIntelCard(cp.name, "UN Security Checkpoint", cp.desc, "120m ASL", "0.5 mSv/h");
+            });
+            checkpointsGroup.addLayer(marker);
+        });
+
+        function toggleLayer(name) {
+            const checked = document.getElementById(`layer-${name}`).checked;
+            const targetGroup = {
+                'perimeter': perimeterGroup,
+                'redcore': redCoreGroup,
+                'powerplants': powerPlantsGroup,
+                'airbases': airbasesGroup,
+                'rail': railGroup,
+                'checkpoints': checkpointsGroup
+            }[name];
+
+            if (targetGroup) {
+                if (checked) { targetGroup.addTo(map); }
+                else { map.removeLayer(targetGroup); }
+            }
+        }
+
+        function showIntelCard(title, category, desc, elev, rad) {
+            document.getElementById('intel-title').innerText = title;
+            document.getElementById('intel-category').innerText = category;
+            document.getElementById('intel-description').innerText = desc;
+            document.getElementById('intel-elev').innerText = elev;
+            document.getElementById('intel-rad').innerText = rad;
+            document.getElementById('intel-card').classList.remove('hidden');
+        }
+
+        function closeIntelCard() {
+            document.getElementById('intel-card').classList.add('hidden');
+        }
+
+        map.on('click', () => { closeIntelCard(); });
+
+        map.on('mousemove', (e) => {
+            const lat = e.latlng.lat.toFixed(3);
+            const lng = e.latlng.lng.toFixed(3);
+            const elev = Math.floor(120 + Math.sin(lat * 10) * 45 + Math.cos(lng * 10) * 35);
+            document.getElementById('hud-elevation').innerText = `${elev}m ASL`;
+        });
+
+        const sidebar = document.getElementById('sidebar');
+        document.getElementById('sidebar-toggle').addEventListener('click', () => {
+            sidebar.classList.toggle('-translate-x-full');
+        });
+        document.getElementById('sidebar-close').addEventListener('click', () => {
+            sidebar.classList.add('-translate-x-full');
+        });
+
+        let crtActive = false;
+        document.getElementById('btn-crt').addEventListener('click', () => {
+            crtActive = !crtActive;
+            if (crtActive) {
+                document.body.classList.add('crt');
+                document.getElementById('btn-crt').classList.add('bg-red-950', 'text-red-400', 'border-red-600');
+            } else {
+                document.body.classList.remove('crt');
+                document.getElementById('btn-crt').classList.remove('bg-red-950', 'text-red-400', 'border-red-600');
+            }
+        });
+
+        // Waypoint System
+        let waypointModeActive = false;
+        let pendingWaypointLatLng = null;
+        let waypointsList = [];
+
+        document.getElementById('btn-waypoint-mode').addEventListener('click', () => {
+            waypointModeActive = !waypointModeActive;
+            const btn = document.getElementById('btn-waypoint-mode');
+            if (waypointModeActive) {
+                btn.className = "bg-amber-950 border border-amber-600 text-amber-300 px-3 py-1.5 rounded text-xs flex items-center space-x-1.5 transition";
+                map.getContainer().style.cursor = 'crosshair';
+            } else {
+                btn.className = "bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs flex items-center space-x-1.5 transition";
+                map.getContainer().style.cursor = '';
+            }
+        });
+
+        map.on('click', (e) => {
+            if (waypointModeActive) {
+                pendingWaypointLatLng = e.latlng;
+                document.getElementById('waypoint-modal').classList.remove('hidden');
+            }
+        });
+
+        function closeWaypointModal() {
+            document.getElementById('waypoint-modal').classList.add('hidden');
+            waypointModeActive = false;
+            document.getElementById('btn-waypoint-mode').className = "bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs flex items-center space-x-1.5 transition";
+            map.getContainer().style.cursor = '';
+        }
+
+        function saveWaypoint() {
+            const name = document.getElementById('wp-name').value || "Custom Waypoint";
+            const type = document.getElementById('wp-type').value;
+            const notes = document.getElementById('wp-notes').value;
+            
+            const colorMap = {
+                'player': '#3b82f6',
+                'anomaly': '#ef4444',
+                'quest': '#f59e0b',
+                'cache': '#10b981'
+            };
+
+            const marker = L.marker(pendingWaypointLatLng, {
+                draggable: true,
+                icon: L.divIcon({
+                    className: 'custom-waypoint',
+                    html: `<div style="background-color: ${colorMap[type]}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 8px ${colorMap[type]};"></div>`,
+                    iconSize: [14, 14],
+                    iconAnchor: [7, 7]
+                })
+            });
+
+            const wpData = { id: Date.now(), name, type, notes, marker, latlng: pendingWaypointLatLng };
+            waypointsList.push(wpData);
+
+            marker.bindPopup(`<b>${name}</b><br><span class="text-xs uppercase text-gray-500">${type}</span><br><p class="text-xs mt-1">${notes}</p>`);
+            customWaypointsGroup.addLayer(marker);
+
+            renderWaypointList();
+            closeWaypointModal();
+            document.getElementById('wp-name').value = '';
+            document.getElementById('wp-notes').value = '';
+        }
+
+        function renderWaypointList() {
+            const container = document.getElementById('waypoint-list');
+            if (waypointsList.length === 0) {
+                container.innerHTML = `<div class="text-xs text-gray-500 italic p-2 bg-gray-900 rounded border border-gray-800/60">Click "+ WAYPOINT" in top bar, then click map to add markers.</div>`;
+                return;
+            }
+            container.innerHTML = '';
+            waypointsList.forEach((wp, index) => {
+                const item = document.createElement('div');
+                item.className = "flex items-center justify-between bg-gray-900 p-2 rounded border border-gray-800 text-xs";
+                item.innerHTML = `
+                    <div class="truncate cursor-pointer hover:text-amber-400" onclick="map.setView([${wp.latlng.lat}, ${wp.latlng.lng}], 13)">
+                        <span class="font-bold text-gray-200">${wp.name}</span>
+                        <div class="text-[10px] text-gray-400 uppercase">${wp.type}</div>
+                    </div>
+                    <button onclick="deleteWaypoint(${index})" class="text-red-400 hover:text-red-300 p-1"><i class="fa-solid fa-trash"></i></button>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function deleteWaypoint(index) {
+            const wp = waypointsList[index];
+            customWaypointsGroup.removeLayer(wp.marker);
+            waypointsList.splice(index, 1);
+            renderWaypointList();
+        }
+
+        function clearAllWaypoints() {
+            waypointsList.forEach(wp => customWaypointsGroup.removeLayer(wp.marker));
+            waypointsList = [];
+            renderWaypointList();
+        }
+
+        // Direct A-B Ruler
+        let rulerActive = false;
+        let rulerMarkers = [];
+        let rulerLine = null;
+
+        document.getElementById('btn-ruler').addEventListener('click', () => {
+            rulerActive = !rulerActive;
+            const btn = document.getElementById('btn-ruler');
+            if (rulerActive) {
+                btn.className = "bg-blue-950 border border-blue-600 text-blue-300 px-3 py-1.5 rounded text-xs flex items-center space-x-1.5 transition";
+                startDirectRuler();
+            } else {
+                btn.className = "bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs flex items-center space-x-1.5 transition";
+                clearRuler();
+            }
+        });
+
+        function startDirectRuler() {
+            clearRuler();
+            document.getElementById('ruler-hud').classList.remove('hidden');
+            const center = map.getCenter();
+            const p1 = [center.lat + 0.1, center.lng - 0.1];
+            const p2 = [center.lat - 0.1, center.lng + 0.1];
+
+            const m1 = L.marker(p1, { draggable: true, icon: createRulerIcon('A') }).addTo(map);
+            const m2 = L.marker(p2, { draggable: true, icon: createRulerIcon('B') }).addTo(map);
+
+            rulerMarkers = [m1, m2];
+            rulerLine = L.polyline([p1, p2], { color: '#60a5fa', weight: 3, dashArray: '6, 6' }).addTo(map);
+
+            m1.on('drag', updateDirectRuler);
+            m2.on('drag', updateDirectRuler);
+            updateDirectRuler();
+        }
+
+        function createRulerIcon(label) {
+            return L.divIcon({
+                className: 'ruler-handle',
+                html: `<div style="background-color: #2563eb; color: white; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 11px; border: 2px solid white; box-shadow: 0 0 6px blue;">${label}</div>`,
+                iconSize: [22, 22],
+                iconAnchor: [11, 11]
+            });
+        }
+
+        function updateDirectRuler() {
+            if (rulerMarkers.length < 2) return;
+            const latlng1 = rulerMarkers[0].getLatLng();
+            const latlng2 = rulerMarkers[1].getLatLng();
+            rulerLine.setLatLngs([latlng1, latlng2]);
+
+            const distKm = latlng1.distanceTo(latlng2) / 1000;
+            const bearing = calculateBearing(latlng1.lat, latlng1.lng, latlng2.lat, latlng2.lng);
+            const walkTimeMin = Math.round((distKm / 4.5) * 60);
+
+            document.getElementById('ruler-dist').innerText = distKm >= 1 ? `${distKm.toFixed(2)} km` : `${(distKm * 1000).toFixed(0)} m`;
+            document.getElementById('ruler-bearing').innerText = `${bearing}°`;
+            document.getElementById('ruler-time').innerText = `${walkTimeMin} min`;
+        }
+
+        function clearRuler() {
+            rulerMarkers.forEach(m => map.removeLayer(m));
+            if (rulerLine) map.removeLayer(rulerLine);
+            rulerMarkers = [];
+            rulerLine = null;
+            rulerActive = false;
+            document.getElementById('ruler-hud').classList.add('hidden');
+            document.getElementById('btn-ruler').className = "bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs flex items-center space-x-1.5 transition";
+        }
+
+        // Multi-Segment Route Ruler
+        let routeRulerActive = false;
+        let routeMarkers = [];
+        let routeLine = null;
+
+        document.getElementById('btn-route-ruler').addEventListener('click', () => {
+            routeRulerActive = !routeRulerActive;
+            const btn = document.getElementById('btn-route-ruler');
+            if (routeRulerActive) {
+                btn.className = "bg-emerald-950 border border-emerald-600 text-emerald-300 px-3 py-1.5 rounded text-xs flex items-center space-x-1.5 transition";
+                startRouteRuler();
+            } else {
+                btn.className = "bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs flex items-center space-x-1.5 transition";
+                clearRouteRuler();
+            }
+        });
+
+        function startRouteRuler() {
+            clearRouteRuler();
+            document.getElementById('route-ruler-hud').classList.remove('hidden');
+            const center = map.getCenter();
+            const p1 = [center.lat + 0.08, center.lng - 0.08];
+            const pMid = [center.lat, center.lng];
+            const p2 = [center.lat - 0.08, center.lng + 0.08];
+
+            [p1, pMid, p2].forEach((pt, idx) => {
+                const m = L.marker(pt, { draggable: true, icon: createRouteIcon(idx + 1) }).addTo(map);
+                m.on('drag', updateRouteCalculations);
+                routeMarkers.push(m);
+            });
+
+            routeLine = L.polyline([p1, pMid, p2], { color: '#34d399', weight: 3, dashArray: '5, 5' }).addTo(map);
+            updateRouteCalculations();
+        }
+
+        function createRouteIcon(num) {
+            return L.divIcon({
+                className: 'route-handle',
+                html: `<div style="background-color: #059669; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; border: 2px solid white; box-shadow: 0 0 6px emerald;">${num}</div>`,
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
+            });
+        }
+
+        function updateRouteCalculations() {
+            if (routeMarkers.length < 2) return;
+            const latlngs = routeMarkers.map(m => m.getLatLng());
+            routeLine.setLatLngs(latlngs);
+
+            let totalDist = 0;
+            for (let i = 0; i < latlngs.length - 1; i++) {
+                totalDist += latlngs[i].distanceTo(latlngs[i+1]);
+            }
+            const distKm = totalDist / 1000;
+            
+            const speedKmH = parseFloat(document.getElementById('route-speed-select').value) || 4.5;
+            const timeHours = distKm / speedKmH;
+            const timeMinutes = Math.round(timeHours * 60);
+
+            document.getElementById('route-dist').innerText = distKm >= 1 ? `${distKm.toFixed(2)} km` : `${(distKm * 1000).toFixed(0)} m`;
+            document.getElementById('route-time').innerText = timeMinutes >= 60 ? `${(timeMinutes/60).toFixed(1)} hrs` : `${timeMinutes} min`;
+        }
+
+        function clearRouteRuler() {
+            routeMarkers.forEach(m => map.removeLayer(m));
+            if (routeLine) map.removeLayer(routeLine);
+            routeMarkers = [];
+            routeLine = null;
+            routeRulerActive = false;
+            document.getElementById('route-ruler-hud').classList.add('hidden');
+            document.getElementById('btn-route-ruler').className = "bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs flex items-center space-x-1.5 transition";
+        }
+
+        function calculateBearing(lat1, lon1, lat2, lon2) {
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            lat1 = lat1 * Math.PI / 180;
+            lat2 = lat2 * Math.PI / 180;
+            const y = Math.sin(dLon) * Math.cos(lat2);
+            const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+            let brng = Math.atan2(y, x) * 180 / Math.PI;
+            return Math.round((brng + 360) % 360);
+        }
+
+        window.addEventListener('resize', () => { map.invalidateSize(); });
+    </script>
+</body>
+</html>
